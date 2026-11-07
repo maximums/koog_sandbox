@@ -14,4 +14,5 @@ testBalloon-framework-core = { module = "de.infix.testBalloon:testBalloon-framew
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 testBalloon = { id = "de.infix.testBalloon", version.ref = "testBalloon" }
