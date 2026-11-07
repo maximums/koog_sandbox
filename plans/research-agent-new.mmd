@@ -1,0 +1,50 @@
+flowchart TD
+    %% kresearch: web research agent (Koog 1.3.0 graph strategy, CLI, Ollama)
+    %% Limits: 3 rounds, 5 queries/round, 8 pages/round, 30 pages total
+    REQ(["CLI: kresearch ‹question›"])
+
+    subgraph STRATEGY["Koog graph strategy · ResearchState flows along every edge: plan, seen URLs, evidence notes, round, spend"]
+        PLAN["Plan research<br/>sub-questions + success criteria"]
+        QUERIES["Generate queries<br/>only for open gaps · max 5<br/><i>small model</i>"]
+        SEARCH["Search in parallel"]
+        RANK["Normalize URLs · drop already-seen<br/>rank by snippet · keep top 8"]
+        FETCH["Fetch + clean pages in parallel"]
+        EXTRACT["Extract evidence notes<br/>one isolated call per page<br/>id · claim · quote · URL · sub-question<br/><i>small model</i>"]
+        ASSESS["Assess coverage<br/>per sub-question · gaps · conflicts"]
+        DONE{"All covered?<br/>or round = 3<br/>or pages ≥ 30"}
+        WRITE["Write report<br/>from evidence notes only<br/>cites note ids"]
+        CHECK{"Every citation<br/>matches a note?"}
+
+        PLAN --> QUERIES --> SEARCH --> RANK --> FETCH --> EXTRACT --> ASSESS --> DONE
+        DONE -->|"No: next round on gaps"| QUERIES
+        DONE -->|Yes| WRITE --> CHECK
+        CHECK -->|"No: rewrite, max 2"| WRITE
+    end
+
+    OUT(["report.md + numbered sources"])
+
+    REQ --> PLAN
+    CHECK -->|Yes| OUT
+
+    subgraph PORTS["Interfaces → implementations"]
+        SP[["SearchProvider"]] -.-> DDG["DuckDuckGoSearchProvider<br/>simple · html.duckduckgo.com, no JS"]
+        PF[["PageFetcher"]] -.-> JINA["JinaReaderFetcher<br/>r.jina.ai/‹url› → Markdown"]
+        EXEC[["PromptExecutor"]] -.-> OLLAMA["Ollama, local"]
+    end
+
+    SEARCH -.-> SP
+    FETCH -.-> PF
+    STRATEGY -.->|"LLM steps"| EXEC
+
+    subgraph LEGEND["Legend"]
+        L1["LLM step"]
+        L2["Plain Kotlin code"]
+        L3[["Interface"]]
+    end
+
+    classDef llm fill:#e8f0fe,stroke:#4a6fd1,color:#1a1a1a
+    classDef code fill:#f1f3f4,stroke:#80868b,color:#1a1a1a
+    classDef port fill:#fff4e5,stroke:#d08c2a,color:#1a1a1a
+    class PLAN,QUERIES,EXTRACT,ASSESS,WRITE,L1 llm
+    class SEARCH,RANK,FETCH,L2 code
+    class SP,PF,EXEC,L3 port
