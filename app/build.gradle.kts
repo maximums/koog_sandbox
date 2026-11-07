@@ -29,5 +29,5 @@ java {
 }
 
 application {
-    mainClass = "org.example.AppEntry"
+    mainClass = "io.github.maximums.AppEntry"
 }
