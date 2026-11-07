@@ -14,6 +14,7 @@ dependencies {
     implementation(libs.koog.agents.additions)
 
     testImplementation(libs.testBalloon.framework.core)
+    testImplementation(libs.koog.agents.test)
     testImplementation(kotlin("test"))
 }
 
