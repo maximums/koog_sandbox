@@ -1,0 +1,12 @@
+
+flowchart TD
+A([Research request]) --> B[Plan research]
+B --> C[Generate queries]
+C --> D[Execute searches in parallel]
+D --> E[Rank and deduplicate]
+E --> F[Extract relevant pages]
+F --> G[Evaluate evidence]
+G --> H{Enough evidence?}
+H -->|No| C
+H -->|Yes| I[Generate cited report]
+I --> J([Complete])
