@@ -1,4 +1,4 @@
-package io.github.maximums.research
+package io.github.maximums.research.model
 
 data class ResearchLimits(
     val maxRounds: Int = 3,

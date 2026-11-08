@@ -2,44 +2,37 @@
 
 package io.github.maximums
 
-import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
-import ai.koog.prompt.executor.ollama.client.OllamaModels
-import io.github.maximums.research.ResearchModels
-import io.github.maximums.research.ResearchReport
-import io.github.maximums.research.researchAgent
+import io.github.maximums.research.researcherAgentProvider
 import io.github.maximums.web.DuckDuckGoSearchProvider
 import io.github.maximums.web.JinaReaderFetcher
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.apache5.Apache5
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
-import kotlin.io.path.Path
-import kotlin.io.path.writeText
-import kotlin.system.exitProcess
+import kotlinx.serialization.json.Json
 
-fun main(args: Array<out String>) {
-    val question = args.joinToString(" ").trim()
-    if (question.isEmpty()) {
-        System.err.println("Usage: kresearch <question>")
-        exitProcess(1)
+private const val TAVILY_API_KEY = ""
+
+fun main(args: Array<out String>) = runBlocking {
+    val hClient = HttpClient(Apache5) {
+        install(ContentNegotiation) {
+            json(
+                Json {
+                    prettyPrint = true
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                    encodeDefaults = true
+                }
+            )
+        }
     }
-
-    val agent = researchAgent(
-        executor = simpleOllamaAIExecutor(),
-        search = DuckDuckGoSearchProvider(),
-        fetcher = JinaReaderFetcher(),
-        models = ResearchModels(main = OllamaModels.Alibaba.QWEN_3_5_9B, small = OllamaModels.Alibaba.QWEN_3_5_9B),
+    val agent = researcherAgentProvider(
+        httpClient = hClient,
+        apiKey = TAVILY_API_KEY,
     )
-    val report = runBlocking { agent.run(question) }
 
-    val output = Path("report.md")
-    output.writeText(report.toMarkdown())
-    println("Report written to ${output.toAbsolutePath()}")
-}
+    val response = agent.run("Who is Lionel Messi?", "Testing session")
 
-private fun ResearchReport.toMarkdown(): String = buildString {
-    appendLine(markdown.trim())
-    if (sources.isNotEmpty()) {
-        appendLine()
-        appendLine("## Sources")
-        appendLine()
-        sources.forEach { appendLine("- [${it.id}] [${it.title}](${it.url})") }
-    }
+    println("Got the following response: $response")
 }
