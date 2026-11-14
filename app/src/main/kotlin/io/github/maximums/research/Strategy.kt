@@ -5,10 +5,11 @@ import ai.koog.agents.core.agent.GraphAIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.extension.nodeAppendPrompt
-import ai.koog.agents.core.dsl.extension.nodeExecuteSingleTool
+import ai.koog.agents.core.dsl.extension.nodeExecuteTools
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
-import ai.koog.agents.core.dsl.extension.nodeLLMRequestWithoutTools
+import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResults
 import ai.koog.agents.core.dsl.extension.onTextMessage
+import ai.koog.agents.core.dsl.extension.onToolCalls
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.features.tracing.feature.Tracing
@@ -31,7 +32,7 @@ fun researcherAgentProvider(
     return AIAgent(
         promptExecutor = executor,
         llmModel = OllamaModels.Alibaba.QWEN_3_8_27B,
-        strategy = strategyProvider(limits, webSearch),
+        strategy = strategyProvider(),
         toolRegistry = ToolRegistry {
             tool(webSearch)
         },
@@ -56,10 +57,11 @@ fun researcherAgentProvider(
     }
 }
 
-fun strategyProvider(
-    limits: ResearchLimits,
-    webSearch: WebSearchTool,
-): AIAgentGraphStrategy<String, String> {
+/**
+ * The research loop: the model gets the question, and on each turn either calls tools or answers. Tool
+ * results go back to the model, and the loop repeats until it answers with text.
+ */
+fun strategyProvider(): AIAgentGraphStrategy<String, String> {
     // Loaded here rather than in the node, so a missing prompt fails when the agent is built, not mid-run.
     val systemPrompt = loadPrompt("researcher.md")
 
@@ -67,16 +69,22 @@ fun strategyProvider(
         val setupContext by nodeAppendPrompt<String>("setupContext") {
             system(systemPrompt)
         }
-        val nodeSendMainQuery by nodeLLMRequest()
-        val execWebSearchToolNode by nodeExecuteSingleTool(tool = webSearch)
-        val answerNode by nodeLLMRequestWithoutTools()
+        val askModel by nodeLLMRequest()
+        val runTools by nodeExecuteTools()
+        val sendToolResults by nodeLLMSendToolResults()
 
         edge(nodeStart forwardTo setupContext)
-        edge(setupContext forwardTo execWebSearchToolNode transformed { WebSearchTool.Args(query = it) })
-        edge(execWebSearchToolNode forwardTo answerNode transformed { agentInput as String })
-        edge(answerNode forwardTo nodeFinish onTextMessage { true })
+        edge(setupContext forwardTo askModel)
 
-//        edge(setupContext forwardTo nodeSendMainQuery)
-//        edge(nodeSendMainQuery forwardTo nodeFinish onTextMessage { true })
+        // Koog follows the first edge that matches, and a reply can hold both text and tool calls
+        // ("Let me search for that" plus a webSearch call). Tool calls are checked first, so such a reply
+        // runs its tools instead of ending the run with the preamble as the answer.
+        edge(askModel forwardTo runTools onToolCalls { true })
+        edge(askModel forwardTo nodeFinish onTextMessage { true })
+
+        edge(runTools forwardTo sendToolResults)
+
+        edge(sendToolResults forwardTo runTools onToolCalls { true })
+        edge(sendToolResults forwardTo nodeFinish onTextMessage { true })
     }
 }
