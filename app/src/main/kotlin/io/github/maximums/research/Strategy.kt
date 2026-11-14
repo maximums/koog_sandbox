@@ -17,23 +17,18 @@ import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.ollama.client.OllamaModels
 import ai.koog.prompt.markdown.markdown
-import io.github.maximums.research.model.ResearchLimits
-import io.github.maximums.tools.TavilyWebSearch
-import io.github.maximums.web.PageFetcher
+import io.github.maximums.tools.WebSearchTool
 import io.github.maximums.web.SearchProvider
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
-import io.ktor.client.HttpClient
-import kotlin.times
 
 fun researcherAgentProvider(
     executor: PromptExecutor = simpleOllamaAIExecutor(),
-    httpClient: HttpClient,
-    apiKey: String,
+    searchProvider: SearchProvider,
     limits: ResearchLimits = ResearchLimits(),
     logger: KLogger = KotlinLogging.logger {}
 ): GraphAIAgent<String, String> {
-    val webSearch = TavilyWebSearch(httpClient, apiKey)
+    val webSearch = WebSearchTool(searchProvider, limits.resultsPerQuery)
     return AIAgent(
         promptExecutor = executor,
         llmModel = OllamaModels.Alibaba.QWEN_3_8_27B,
@@ -64,11 +59,10 @@ fun researcherAgentProvider(
 
 fun strategyProvider(
     limits: ResearchLimits,
-    webSearch: TavilyWebSearch,
+    webSearch: WebSearchTool,
 ): AIAgentGraphStrategy<String, String> = strategy("web-research") {
-    val nodeSendMainQuery by nodeLLMRequest()
     val setupContext by nodeAppendPrompt<String>("setupContext") {
-        system() {
+        system {
             markdown {
                 h2("Identity")
                 textWithNewLine("You are an autonomous Web Research Agent. Your purpose is to investigate questions, gather reliable information from external sources, evaluate evidence, and produce accurate, well-supported answers. You are responsible for the quality of the research, not merely retrieving search results.")
@@ -136,15 +130,15 @@ fun strategyProvider(
             }
         }
     }
-
+    val nodeSendMainQuery by nodeLLMRequest()
     val execWebSearchToolNode by nodeExecuteSingleTool(tool = webSearch)
     val answerNode by nodeLLMRequestWithoutTools()
 
-    edge(nodeStart forwardTo execWebSearchToolNode transformed { TavilyWebSearch.Args(query = it) })
+    edge(nodeStart forwardTo setupContext)
+    edge(setupContext forwardTo execWebSearchToolNode transformed { WebSearchTool.Args(query = it) })
     edge(execWebSearchToolNode forwardTo answerNode transformed { agentInput as String })
     edge(answerNode forwardTo nodeFinish onTextMessage { true })
 
-//    edge(nodeStart forwardTo setupContext)
 //    edge(setupContext forwardTo nodeSendMainQuery)
 //    edge(nodeSendMainQuery forwardTo nodeFinish onTextMessage { true })
 }
