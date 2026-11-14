@@ -23,7 +23,7 @@ data class SearchResult(
     val publishedDate: LocalDate? = null,
 )
 
-/** Searches the web. Expected failures come back as a [SearchError]; an exception means a bug. */
+/** Searches the web. Expected failures come back as an [ApiError]; an exception means a bug. */
 fun interface SearchProvider {
-    suspend fun search(query: SearchQuery, limit: Int): Either<SearchError, List<SearchResult>>
+    suspend fun search(query: SearchQuery, limit: Int): Either<ApiError, List<SearchResult>>
 }

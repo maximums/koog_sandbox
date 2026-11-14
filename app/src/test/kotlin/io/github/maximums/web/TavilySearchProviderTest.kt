@@ -4,19 +4,13 @@ import arrow.core.right
 import de.infix.testBalloon.framework.core.testSuite
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.TextContent
-import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import java.time.LocalDate
@@ -28,7 +22,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.seconds
 
-private const val TAVILY_RESPONSE = """
+private const val SEARCH_RESPONSE = """
 {
   "query": "koog agents",
   "answer": null,
@@ -42,43 +36,22 @@ private const val TAVILY_RESPONSE = """
 }
 """
 
-private const val ERROR_BODY = """{"detail":{"error":"Tavily says no."}}"""
-
-private data class TavilyReply(
-    val status: HttpStatusCode = HttpStatusCode.OK,
-    val body: String = TAVILY_RESPONSE,
-    val retryAfter: String? = null,
-)
+private val QUERY = SearchQuery("koog agents")
 
 val TavilySearchProviderTest by testSuite {
-    /** Answers every request with [reply] and records the requests. */
-    class RecordingTavily(reply: TavilyReply = TavilyReply()) {
-        val requests = mutableListOf<HttpRequestData>()
-        val http = HttpClient(MockEngine { request ->
-            requests += request
-            val headers = listOfNotNull(
-                HttpHeaders.ContentType to listOf("application/json"),
-                reply.retryAfter?.let { HttpHeaders.RetryAfter to listOf(it) },
-            )
-            respond(reply.body, reply.status, headersOf(*headers.toTypedArray()))
-        }) {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-        }
+    fun searchTavily(reply: TavilyReply = TavilyReply(body = SEARCH_RESPONSE)) = RecordingTavily(reply)
 
-        fun provider() = TavilySearchProvider("tvly-test", http)
+    fun RecordingTavily.provider() = TavilySearchProvider("tvly-test", http)
 
-        fun sentJson() = Json.parseToJsonElement((requests.single().body as TextContent).text).jsonObject
-    }
-
-    suspend fun failedSearch(reply: TavilyReply): SearchError {
-        val tavily = RecordingTavily(reply)
-        val error = assertNotNull(tavily.provider().search(SearchQuery("koog agents"), limit = 5).leftOrNull(), "expected a search error")
+    suspend fun failedSearch(reply: TavilyReply): ApiError {
+        val tavily = searchTavily(reply)
+        val error = assertNotNull(tavily.provider().search(QUERY, limit = 5).leftOrNull(), "expected an API error")
         assertEquals(1, tavily.requests.size, "the provider itself never retries")
         return error
     }
 
     test("maps results in Tavily's order, with page text and publication date when Tavily has them") {
-        val results = RecordingTavily().provider().search(SearchQuery("koog agents"), limit = 5)
+        val results = searchTavily().provider().search(QUERY, limit = 5)
 
         assertEquals(
             listOf(
@@ -94,8 +67,8 @@ val TavilySearchProviderTest by testSuite {
     }
 
     test("sends the query with bearer auth") {
-        val tavily = RecordingTavily()
-        tavily.provider().search(SearchQuery("koog agents"), limit = 5)
+        val tavily = searchTavily()
+        tavily.provider().search(QUERY, limit = 5)
 
         val request = tavily.requests.single()
         assertEquals("https://api.tavily.com/search", request.url.toString())
@@ -112,7 +85,7 @@ val TavilySearchProviderTest by testSuite {
     test("sends a query's recency as Tavily's time range") {
         val expected = mapOf(Recency.DAY to "day", Recency.WEEK to "week", Recency.MONTH to "month", Recency.YEAR to "year")
         for ((recency, timeRange) in expected) {
-            val tavily = RecordingTavily()
+            val tavily = searchTavily()
             tavily.provider().search(SearchQuery("koog agents", recency), limit = 5)
 
             assertEquals(timeRange, tavily.sentJson()["time_range"]?.jsonPrimitive?.content)
@@ -120,57 +93,57 @@ val TavilySearchProviderTest by testSuite {
     }
 
     test("treats a publication date it can't read as unknown") {
-        val tavily = RecordingTavily(
+        val tavily = searchTavily(
             TavilyReply(body = """{"results": [{"title": "Koog", "url": "https://koog.ai", "content": "Snippet.", "published_date": "sometime last year"}]}""")
         )
 
-        val results = assertNotNull(tavily.provider().search(SearchQuery("koog agents"), limit = 5).getOrNull())
+        val results = assertNotNull(tavily.provider().search(QUERY, limit = 5).getOrNull())
         assertNull(results.single().publishedDate)
     }
 
     test("treats blank page text as missing") {
-        val tavily = RecordingTavily(
+        val tavily = searchTavily(
             TavilyReply(body = """{"results": [{"title": "Empty", "url": "https://example.com", "content": "Snippet.", "raw_content": "  "}]}""")
         )
 
-        val results = assertNotNull(tavily.provider().search(SearchQuery("koog agents"), limit = 5).getOrNull())
+        val results = assertNotNull(tavily.provider().search(QUERY, limit = 5).getOrNull())
         assertNull(results.single().content)
     }
 
     test("caps max_results at Tavily's limit") {
-        val tavily = RecordingTavily()
-        tavily.provider().search(SearchQuery("koog agents"), limit = 50)
+        val tavily = searchTavily()
+        tavily.provider().search(QUERY, limit = 50)
 
         assertEquals(20, tavily.sentJson()["max_results"]?.jsonPrimitive?.int)
     }
 
-    test("turns Tavily's error statuses into search errors, keeping Tavily's message") {
+    test("turns Tavily's error statuses into API errors, keeping Tavily's message") {
         val expected = mapOf(
-            400 to SearchError.InvalidRequest::class,
-            401 to SearchError.Unauthorized::class,
-            404 to SearchError.Unexpected::class,
-            422 to SearchError.InvalidRequest::class,
-            429 to SearchError.RateLimited::class,
-            432 to SearchError.QuotaExceeded::class,
-            433 to SearchError.QuotaExceeded::class,
-            500 to SearchError.Unavailable::class,
-            503 to SearchError.Unavailable::class,
+            400 to ApiError.InvalidRequest::class,
+            401 to ApiError.Unauthorized::class,
+            404 to ApiError.Unexpected::class,
+            422 to ApiError.InvalidRequest::class,
+            429 to ApiError.RateLimited::class,
+            432 to ApiError.QuotaExceeded::class,
+            433 to ApiError.QuotaExceeded::class,
+            500 to ApiError.Unavailable::class,
+            503 to ApiError.Unavailable::class,
         )
         for ((status, type) in expected) {
-            val error = failedSearch(TavilyReply(HttpStatusCode.fromValue(status), ERROR_BODY))
+            val error = failedSearch(TavilyReply(HttpStatusCode.fromValue(status), TAVILY_ERROR_BODY))
 
             assertEquals(type, error::class, "HTTP $status")
-            assertContains(error.message.orEmpty(), "HTTP $status")
-            assertContains(error.message.orEmpty(), "Tavily says no.")
+            assertContains(error.message, "HTTP $status")
+            assertContains(error.message, "Tavily says no.")
         }
     }
 
     test("reads how long a rate limit asks to wait") {
-        val withHeader = failedSearch(TavilyReply(HttpStatusCode.TooManyRequests, ERROR_BODY, retryAfter = "3"))
-        val withoutHeader = failedSearch(TavilyReply(HttpStatusCode.TooManyRequests, ERROR_BODY))
+        val withHeader = failedSearch(TavilyReply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY, retryAfter = "3"))
+        val withoutHeader = failedSearch(TavilyReply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY))
 
-        assertEquals(3.seconds, assertIs<SearchError.RateLimited>(withHeader).retryAfter)
-        assertNull(assertIs<SearchError.RateLimited>(withoutHeader).retryAfter)
+        assertEquals(3.seconds, assertIs<ApiError.RateLimited>(withHeader).retryAfter)
+        assertNull(assertIs<ApiError.RateLimited>(withoutHeader).retryAfter)
     }
 
     test("reports Tavily as unavailable when it can't be reached") {
@@ -178,19 +151,19 @@ val TavilySearchProviderTest by testSuite {
             install(ContentNegotiation) { json() }
         }
 
-        val error = TavilySearchProvider("tvly-test", unreachable).search(SearchQuery("koog agents"), limit = 5).leftOrNull()
+        val error = TavilySearchProvider("tvly-test", unreachable).search(QUERY, limit = 5).leftOrNull()
 
-        assertIs<IOException>(assertIs<SearchError.Unavailable>(error).cause)
+        assertIs<IOException>(assertIs<ApiError.Unavailable>(error).cause)
     }
 
     test("reports a response that can't be read as unexpected") {
         val error = failedSearch(TavilyReply(body = "<html>Bad gateway</html>"))
 
-        assertIs<SearchError.Unexpected>(error)
+        assertIs<ApiError.Unexpected>(error)
     }
 
     test("rejects a blank API key or a chunk count outside 1 to 3 up front") {
-        val http = RecordingTavily().http
+        val http = searchTavily().http
         assertFailsWith<IllegalArgumentException> { TavilySearchProvider(" ", http) }
         assertFailsWith<IllegalArgumentException> { TavilySearchProvider("tvly-test", http, chunksPerSource = 0) }
         assertFailsWith<IllegalArgumentException> { TavilySearchProvider("tvly-test", http, chunksPerSource = 4) }

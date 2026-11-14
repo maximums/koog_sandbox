@@ -6,7 +6,7 @@ import arrow.core.right
 import de.infix.testBalloon.framework.core.TestConfig
 import de.infix.testBalloon.framework.core.testScope
 import de.infix.testBalloon.framework.core.testSuite
-import io.github.maximums.web.SearchError
+import io.github.maximums.web.ApiError
 import io.github.maximums.web.Recency
 import io.github.maximums.web.SearchProvider
 import io.github.maximums.web.SearchQuery
@@ -21,11 +21,11 @@ import kotlin.time.Duration.Companion.seconds
 /** Returns [errors] in order on successive searches, then [results]. Records each query and limit. */
 private class RecordingProvider(
     private val results: List<SearchResult> = emptyList(),
-    private vararg val errors: SearchError,
+    private vararg val errors: ApiError,
 ) : SearchProvider {
     val calls = mutableListOf<Pair<SearchQuery, Int>>()
 
-    override suspend fun search(query: SearchQuery, limit: Int): Either<SearchError, List<SearchResult>> {
+    override suspend fun search(query: SearchQuery, limit: Int): Either<ApiError, List<SearchResult>> {
         calls += query to limit
         return errors.getOrNull(calls.size - 1)?.left() ?: results.right()
     }
@@ -84,7 +84,7 @@ val WebSearchToolTest by testSuite(testConfig = TestConfig.testScope(isEnabled =
 
     test("retries a temporary failure before answering") {
         val hit = SearchResult("https://koog.ai", "Koog", "Koog is a Kotlin agent framework.", rank = 0)
-        val provider = RecordingProvider(listOf(hit), SearchError.RateLimited("slow down", retryAfter = 2.seconds))
+        val provider = RecordingProvider(listOf(hit), ApiError.RateLimited("slow down", retryAfter = 2.seconds))
 
         val result = WebSearchTool(provider, resultsPerQuery = 5).execute(WebSearchTool.Args("koog agents"))
 
@@ -93,7 +93,7 @@ val WebSearchToolTest by testSuite(testConfig = TestConfig.testScope(isEnabled =
     }
 
     test("tells the model to stop searching when the key or credits are the problem") {
-        for (error in listOf(SearchError.Unauthorized("bad key"), SearchError.QuotaExceeded("no credits"))) {
+        for (error in listOf(ApiError.Unauthorized("bad key"), ApiError.QuotaExceeded("no credits"))) {
             val provider = RecordingProvider(emptyList(), error)
 
             val result = WebSearchTool(provider, resultsPerQuery = 5).execute(WebSearchTool.Args("koog agents"))
@@ -105,7 +105,7 @@ val WebSearchToolTest by testSuite(testConfig = TestConfig.testScope(isEnabled =
     }
 
     test("tells the model search is temporarily unavailable once the retries run out") {
-        val down = SearchError.Unavailable("down")
+        val down = ApiError.Unavailable("down")
         val provider = RecordingProvider(emptyList(), down, down, down)
 
         val result = WebSearchTool(provider, resultsPerQuery = 5).execute(WebSearchTool.Args("koog agents"))

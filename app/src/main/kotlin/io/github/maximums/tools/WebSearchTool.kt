@@ -5,7 +5,7 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.serialization.typeToken
 import io.github.maximums.retry.RetryPolicy
 import io.github.maximums.retry.withRetry
-import io.github.maximums.web.SearchError
+import io.github.maximums.web.ApiError
 import io.github.maximums.web.SearchProvider
 import io.github.maximums.web.SearchQuery
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -32,20 +32,15 @@ class WebSearchTool(
     argsType = typeToken<Args>(),
     resultType = typeToken<Result>(),
     name = "webSearch",
-    description = "Searches the web and returns the top results for a query, each with a title, URL and snippet, " +
-        "and a publication date when one is known. Snippets are short excerpts chosen by the search engine, " +
-        "not verified evidence. Dates are estimates and may be when the page was last updated.",
+    description = "Searches the web and returns the top results.",
 ) {
 
     @Serializable
     data class Args(
-        @property:LLMDescription("A precise, information-rich search query.")
+        @property:LLMDescription("Search query.")
         val query: String,
 
-        @property:LLMDescription(
-            "Only return pages published within this period. Use it when the question is about recent " +
-                "events or the latest state of something; leave it out otherwise."
-        )
+        @property:LLMDescription("Only return pages from this period. Omit unless recency matters.")
         val recency: Recency? = null,
     )
 
@@ -75,7 +70,7 @@ class WebSearchTool(
     )
 
     override suspend fun execute(args: Args): Result {
-        if (args.query.isBlank()) return Result(args.query, error = "The query is empty. Provide a search query.")
+        if (args.query.isBlank()) return Result(args.query, error = "Empty query.")
 
         val query = SearchQuery(text = args.query, recency = args.recency?.toSearchRecency())
 
@@ -103,14 +98,13 @@ private fun WebSearchTool.Recency.toSearchRecency(): SearchRecency = when (this)
     WebSearchTool.Recency.YEAR -> SearchRecency.YEAR
 }
 
-private fun SearchError.forModel(): String = when (this) {
-    is SearchError.Unauthorized, is SearchError.QuotaExceeded ->
-        "Web search is unavailable for the rest of this task. Don't call webSearch again; " +
-            "answer with what you already have."
+private fun ApiError.forModel(): String = when (this) {
+    is ApiError.Unauthorized, is ApiError.QuotaExceeded ->
+        "Web search is unavailable for this task. Don't call webSearch again."
 
-    is SearchError.RateLimited, is SearchError.Unavailable ->
-        "Web search is temporarily unavailable. Try again later, or continue with what you already have."
+    is ApiError.RateLimited, is ApiError.Unavailable ->
+        "Web search is temporarily unavailable."
 
-    is SearchError.InvalidRequest, is SearchError.Unexpected ->
-        "This search failed. Try a different query."
+    is ApiError.InvalidRequest, is ApiError.Unexpected ->
+        "Search failed. Try a different query."
 }

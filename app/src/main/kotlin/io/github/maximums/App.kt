@@ -33,7 +33,8 @@ fun main(args: Array<out String>) = runBlocking {
         searchProvider = TavilySearchProvider(apiKey = tavilyApiKey, http = hClient),
     )
 
-    val response = agent.run("Who is Lionel Messi?", "Testing session")
+    val userRequest = readln()
+    val response = agent.run(userRequest, "Testing session")
 
     println("Got the following response: $response")
 }
