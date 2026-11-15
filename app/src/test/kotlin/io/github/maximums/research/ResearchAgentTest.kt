@@ -10,8 +10,13 @@ import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.streaming.StreamFrame
 import arrow.core.Either
+import arrow.core.left
 import arrow.core.right
 import de.infix.testBalloon.framework.core.testSuite
+import io.github.maximums.decision.Answer
+import io.github.maximums.decision.DecisionModel
+import io.github.maximums.decision.Question
+import io.github.maximums.decision.ScoreAnswer
 import io.github.maximums.tools.ReadPagesTool
 import io.github.maximums.tools.WebSearchTool
 import io.github.maximums.web.ApiError
@@ -24,7 +29,10 @@ import io.github.maximums.web.SearchResult
 import io.github.maximums.web.Unreadable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.Collections
+import kotlin.reflect.cast
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -34,16 +42,37 @@ private const val QUESTION = "Who builds Koog?"
 private const val ANSWER = "JetBrains builds Koog (https://koog.ai)."
 private const val KOOG = "https://koog.ai"
 
+private const val DOGS = "https://dogs.example"
+private val dogs = SearchResult(DOGS, "Dog breeds", "All about dogs.", rank = 1)
+
 /**
  * Answers every search with one hit whose snippet names the query ("Found [koog]"), so the mock model can
- * tell which search's results it's looking at. Records the queries, including ones searched at the same time.
+ * tell which search's results it's looking at, then [extraHit] when given. Records the queries, including
+ * ones searched at the same time.
  */
-private class FakeSearch : SearchProvider {
+private class FakeSearch(private val extraHit: SearchResult? = null) : SearchProvider {
     val queries: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
     override suspend fun search(query: SearchQuery, limit: Int): Either<ApiError, List<SearchResult>> {
         queries += query.text
-        return listOf(SearchResult(KOOG, "Koog", "Found [${query.text}]", rank = 0)).right()
+        return (listOf(SearchResult(KOOG, "Koog", "Found [${query.text}]", rank = 0)) + listOfNotNull(extraHit)).right()
+    }
+}
+
+/**
+ * Rates a search result whose text mentions [DOGS] as most likely unrelated, and any other as most likely
+ * helpful; with [fails], it can't rate anything. Records each state it's asked about, as text.
+ */
+private class FakeRelevance(private val fails: Boolean = false) : DecisionModel {
+    val states: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
+    override suspend fun <A : Answer> ask(state: JsonElement, questions: Map<String, Question<A>>): Either<ApiError, Map<String, A>> {
+        val text = state.jsonPrimitive.content
+        states += text
+        if (fails) return ApiError.Unavailable("Kev is down").left()
+
+        val answer = if (DOGS in text) ScoreAnswer(0.1, listOf(0.9, 0.05, 0.05), 0.8) else ScoreAnswer(1.9, listOf(0.02, 0.06, 0.92), 0.8)
+        return questions.mapValues { (_, question) -> question.answerType.cast(answer) }.right()
     }
 }
 
@@ -82,8 +111,8 @@ private class PromptRecordingExecutor(private val inner: PromptExecutor) : Promp
     override fun close() = inner.close()
 }
 
-private fun agent(model: PromptExecutor, search: SearchProvider, pages: PageFetcher = FakePages()) =
-    researcherAgentProvider(executor = model, searchProvider = search, pageFetcher = pages)
+private fun agent(model: PromptExecutor, search: SearchProvider, pages: PageFetcher = FakePages(), decisions: DecisionModel? = null) =
+    researcherAgentProvider(executor = model, searchProvider = search, pageFetcher = pages, decisions = decisions)
 
 /** What the model gets back from the planned search when it couldn't write queries: the question searched as is. */
 private const val PLANNED_RESULTS = "Found [$QUESTION]"
@@ -214,5 +243,40 @@ val ResearchAgentTest by testSuite {
         // They run at the same time, so they may finish in any order.
         assertEquals(setOf("koog maintainers", "koog jetbrains", "koog license"), search.queries.toSet())
         assertEquals(3, search.queries.size)
+    }
+
+    test("drops the search results the decision model rates unrelated before the model sees them") {
+        val relevance = FakeRelevance()
+        val model = PromptRecordingExecutor(getMockExecutor { mockLLMAnswer(ANSWER) onRequestContains PLANNED_RESULTS })
+
+        assertEquals(ANSWER, agent(model, FakeSearch(extraHit = dogs), decisions = relevance).run(QUESTION))
+
+        val results = model.prompts.last().messages.flatMap { it.parts }.filterIsInstance<MessagePart.Tool.Result>()
+        val seen = results.joinToString { it.output }
+        assertContains(seen, KOOG)
+        assertTrue(DOGS !in seen, "the unrelated result reached the model: $seen")
+        // Each result is rated on its own, as plain text with the question.
+        assertEquals(setOf("Question: $QUESTION\nSearch result: Koog\n$KOOG\n$PLANNED_RESULTS", "Question: $QUESTION\nSearch result: Dog breeds\n$DOGS\nAll about dogs."), relevance.states.toSet())
+    }
+
+    test("keeps every search result when the decision model can't rate them") {
+        val model = PromptRecordingExecutor(getMockExecutor { mockLLMAnswer(ANSWER) onRequestContains PLANNED_RESULTS })
+
+        agent(model, FakeSearch(extraHit = dogs), decisions = FakeRelevance(fails = true)).run(QUESTION)
+
+        val seen = model.prompts.last().messages.flatMap { it.parts }.filterIsInstance<MessagePart.Tool.Result>().joinToString { it.output }
+        assertContains(seen, KOOG)
+        assertContains(seen, DOGS)
+    }
+
+    test("passes other tools' results to the model without rating them") {
+        val relevance = FakeRelevance()
+        val model = getMockExecutor {
+            mockLLMToolCall(readPages, ReadPagesTool.Args(listOf(DOGS))) onRequestContains PLANNED_RESULTS
+            mockLLMAnswer(ANSWER) onRequestContains "Text of [$DOGS]"
+        }
+
+        assertEquals(ANSWER, agent(model, FakeSearch(), decisions = relevance).run(QUESTION))
+        assertTrue(relevance.states.none { "Text of" in it })
     }
 }

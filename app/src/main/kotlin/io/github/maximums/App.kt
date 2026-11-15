@@ -2,6 +2,7 @@
 
 package io.github.maximums
 
+import io.github.maximums.decision.SystemOneClient
 import io.github.maximums.research.researcherAgentProvider
 import io.github.maximums.web.TavilyPageFetcher
 import io.github.maximums.web.TavilySearchProvider
@@ -31,6 +32,7 @@ fun main(args: Array<out String>) = runBlocking {
     val agent = researcherAgentProvider(
         searchProvider = TavilySearchProvider(apiKey = tavilyApiKey, http = hClient),
         pageFetcher = TavilyPageFetcher(apiKey = tavilyApiKey, http = hClient),
+        decisions = SystemOneClient.kev(hClient),
     )
 
     val userRequest = readln()

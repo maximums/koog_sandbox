@@ -17,6 +17,7 @@ import ai.koog.agents.features.tracing.writer.TraceFeatureMessageLogWriter
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.ollama.client.OllamaModels
+import io.github.maximums.decision.DecisionModel
 import io.github.maximums.tools.ReadPagesTool
 import io.github.maximums.tools.WebSearchTool
 import io.github.maximums.web.PageFetcher
@@ -29,6 +30,7 @@ fun researcherAgentProvider(
     searchProvider: SearchProvider,
     pageFetcher: PageFetcher,
     limits: ResearchLimits = ResearchLimits(),
+    decisions: DecisionModel? = null,
     logger: KLogger = KotlinLogging.logger {}
 ): GraphAIAgent<String, String> {
     val webSearch = WebSearchTool(searchProvider, limits.resultsPerQuery)
@@ -36,7 +38,7 @@ fun researcherAgentProvider(
     return AIAgent(
         promptExecutor = executor,
         llmModel = OllamaModels.Alibaba.QWEN_3_8_27B,
-        strategy = strategyProvider(maxQueries = limits.maxQueriesPerRound),
+        strategy = strategyProvider(maxQueries = limits.maxQueriesPerRound, decisions = decisions),
         toolRegistry = ToolRegistry {
             tool(webSearch)
             tool(readPages)
@@ -67,8 +69,10 @@ fun researcherAgentProvider(
  * that stays out of the conversation. The agent's [WebSearchTool] runs them all at once, and the model starts
  * the research from their results, as if it had run those searches itself. On each turn it then either calls
  * tools or answers; tool results go back to it, and the loop repeats until it answers with text.
+ *
+ * With [decisions], search results it rates unrelated to the question are dropped before the model sees them.
  */
-fun strategyProvider(maxQueries: Int): AIAgentGraphStrategy<String, String> {
+fun strategyProvider(maxQueries: Int, decisions: DecisionModel? = null): AIAgentGraphStrategy<String, String> {
     require(maxQueries >= 1) { "maxQueries must be at least 1, was $maxQueries" }
 
     val systemPrompt = loadPrompt("researcher.md")
@@ -85,7 +89,15 @@ fun strategyProvider(maxQueries: Int): AIAgentGraphStrategy<String, String> {
         edge(planSearches forwardTo searchCalls)
         edge(searchCalls forwardTo setupContext)
         edge(setupContext forwardTo runSearches)
-        edge(runSearches forwardTo sendToolResults)
+
+        // remove the `if` later - always present
+        if (decisions != null) {
+            val filterResults by nodeFilterSearchResults("filterResults", decisions = decisions)
+            edge(runSearches forwardTo filterResults)
+            edge(filterResults forwardTo sendToolResults)
+        } else {
+            edge(runSearches forwardTo sendToolResults)
+        }
 
         // Koog follows the first edge that matches, and a reply can hold both text and tool calls
         // ("Let me search for that" plus a webSearch call). Tool calls are checked first, so such a reply
