@@ -17,6 +17,7 @@ import ai.koog.agents.features.tracing.writer.TraceFeatureMessageLogWriter
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.ollama.client.OllamaModels
+import ai.koog.prompt.llm.LLModel
 import io.github.maximums.decision.DecisionModel
 import io.github.maximums.tools.ReadPagesTool
 import io.github.maximums.tools.WebSearchTool
@@ -25,8 +26,10 @@ import io.github.maximums.web.SearchProvider
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 
+/** A research agent that runs [llmModel] through [executor]: by default Qwen 27B on the local Ollama. */
 fun researcherAgentProvider(
     executor: PromptExecutor = simpleOllamaAIExecutor(),
+    llmModel: LLModel = OllamaModels.Alibaba.QWEN_3_8_27B,
     searchProvider: SearchProvider,
     pageFetcher: PageFetcher,
     limits: ResearchLimits = ResearchLimits(),
@@ -37,7 +40,7 @@ fun researcherAgentProvider(
     val readPages = ReadPagesTool(pageFetcher, maxPagesPerCall = limits.maxPagesPerRound, maxCharsPerCall = limits.maxCharsPerRead)
     return AIAgent(
         promptExecutor = executor,
-        llmModel = OllamaModels.Alibaba.QWEN_3_8_27B,
+        llmModel = llmModel,
         strategy = strategyProvider(maxQueries = limits.maxQueriesPerRound, decisions = decisions),
         toolRegistry = ToolRegistry {
             tool(webSearch)

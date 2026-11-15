@@ -5,8 +5,10 @@ import ai.koog.agents.testing.tools.getMockExecutor
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.ModerationResult
 import ai.koog.prompt.executor.model.PromptExecutor
-import ai.koog.prompt.llm.LLModel
+import ai.koog.prompt.executor.ollama.client.OllamaModels
+
 import ai.koog.prompt.message.Message
+import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.streaming.StreamFrame
 import arrow.core.Either
@@ -17,6 +19,7 @@ import io.github.maximums.decision.Answer
 import io.github.maximums.decision.DecisionModel
 import io.github.maximums.decision.Question
 import io.github.maximums.decision.ScoreAnswer
+import io.github.maximums.llm.ZaiModels
 import io.github.maximums.tools.ReadPagesTool
 import io.github.maximums.tools.WebSearchTool
 import io.github.maximums.web.ApiError
@@ -36,6 +39,7 @@ import kotlin.reflect.cast
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private const val QUESTION = "Who builds Koog?"
@@ -111,8 +115,19 @@ private class PromptRecordingExecutor(private val inner: PromptExecutor) : Promp
     override fun close() = inner.close()
 }
 
-private fun agent(model: PromptExecutor, search: SearchProvider, pages: PageFetcher = FakePages(), decisions: DecisionModel? = null) =
-    researcherAgentProvider(executor = model, searchProvider = search, pageFetcher = pages, decisions = decisions)
+private fun agent(
+    model: PromptExecutor,
+    search: SearchProvider,
+    pages: PageFetcher = FakePages(),
+    decisions: DecisionModel? = null,
+    llmModel: LLModel = OllamaModels.Alibaba.QWEN_3_8_27B,
+) = researcherAgentProvider(
+    executor = model,
+    llmModel = llmModel,
+    searchProvider = search,
+    pageFetcher = pages,
+    decisions = decisions,
+)
 
 /** What the model gets back from the planned search when it couldn't write queries: the question searched as is. */
 private const val PLANNED_RESULTS = "Found [$QUESTION]"
@@ -278,5 +293,23 @@ val ResearchAgentTest by testSuite {
 
         assertEquals(ANSWER, agent(model, FakeSearch(), decisions = relevance).run(QUESTION))
         assertTrue(relevance.states.none { "Text of" in it })
+    }
+
+    test("asks GLM for the search queries with the schema in the prompt, since Z.ai has no JSON schemas") {
+        val search = FakeSearch()
+        val model = PromptRecordingExecutor(
+            getMockExecutor {
+                mockLLMAnswer("""{"queries": ["koog maintainers"]}""") onCondition { "Found [" !in it }
+                mockLLMAnswer(ANSWER) onCondition { "Found [" in it }
+            }
+        )
+
+        assertEquals(ANSWER, agent(model, search, llmModel = ZaiModels.GLM_5_3_FLASH).run(QUESTION))
+
+        val planning = model.prompts.first()
+        assertNull(planning.params.schema, "a schema was sent natively")
+        // Koog adds the JSON schema as a message of its own; only the schema quotes the field's name.
+        assertContains(planning.messages.last().textContent(), "\"queries\"")
+        assertEquals(listOf("koog maintainers"), search.queries)
     }
 }
