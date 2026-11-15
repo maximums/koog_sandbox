@@ -31,9 +31,14 @@ class WebSearchTool(
 ) : Tool<WebSearchTool.Args, WebSearchTool.Result>(
     argsType = typeToken<Args>(),
     resultType = typeToken<Result>(),
-    name = "webSearch",
+    name = NAME,
     description = "Searches the web and returns the top results.",
 ) {
+
+    companion object {
+        /** The tool's name, as the model and tool calls know it. */
+        const val NAME = "webSearch"
+    }
 
     @Serializable
     data class Args(

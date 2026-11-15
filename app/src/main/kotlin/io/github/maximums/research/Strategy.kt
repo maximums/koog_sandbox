@@ -2,11 +2,11 @@ package io.github.maximums.research
 
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.GraphAIAgent
+import ai.koog.agents.core.agent.asMermaidDiagram
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.dsl.builder.strategy
-import ai.koog.agents.core.dsl.extension.nodeAppendPrompt
 import ai.koog.agents.core.dsl.extension.nodeExecuteTools
-import ai.koog.agents.core.dsl.extension.nodeLLMRequest
+import ai.koog.agents.core.dsl.extension.nodeLLMRequestStructured
 import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResults
 import ai.koog.agents.core.dsl.extension.onTextMessage
 import ai.koog.agents.core.dsl.extension.onToolCalls
@@ -36,7 +36,7 @@ fun researcherAgentProvider(
     return AIAgent(
         promptExecutor = executor,
         llmModel = OllamaModels.Alibaba.QWEN_3_8_27B,
-        strategy = strategyProvider(),
+        strategy = strategyProvider(maxQueries = limits.maxQueriesPerRound),
         toolRegistry = ToolRegistry {
             tool(webSearch)
             tool(readPages)
@@ -52,7 +52,7 @@ fun researcherAgentProvider(
             }
 
             onToolCallCompleted { eventContext ->
-                println("onToolCallCompleted::Tool: ${eventContext.toolName} result: ${eventContext.toolResult}")
+                println("onToolCallCompleted::Tool: ${eventContext.toolName} result: ${eventContext.toolArgs}")
             }
 
             onToolCallFailed { eventContext ->
@@ -63,33 +63,36 @@ fun researcherAgentProvider(
 }
 
 /**
- * The research loop: the model gets the question, and on each turn either calls tools or answers. Tool
- * results go back to the model, and the loop repeats until it answers with text.
+ * The research loop. First the model writes up to [maxQueries] search queries for the question, in a request
+ * that stays out of the conversation. The agent's [WebSearchTool] runs them all at once, and the model starts
+ * the research from their results, as if it had run those searches itself. On each turn it then either calls
+ * tools or answers; tool results go back to it, and the loop repeats until it answers with text.
  */
-fun strategyProvider(): AIAgentGraphStrategy<String, String> {
-    // Loaded here rather than in the node, so a missing prompt fails when the agent is built, not mid-run.
-    val systemPrompt = loadPrompt("researcher.md")
+fun strategyProvider(maxQueries: Int): AIAgentGraphStrategy<String, String> {
+    require(maxQueries >= 1) { "maxQueries must be at least 1, was $maxQueries" }
 
-    return strategy("web-research") {
-        val setupContext by nodeAppendPrompt<String>("setupContext") {
-            system(systemPrompt)
-        }
-        val askModel by nodeLLMRequest()
-        val runTools by nodeExecuteTools()
+    val systemPrompt = loadPrompt("researcher.md")
+    val queryInstructions = loadPrompt("search-queries.md").replace("{count}", maxQueries.toString())
+
+    return strategy<String, String>("web-research") {
+        val planSearches by nodeLLMRequestStructured<SearchQueries>("planSearches")
+        val searchCalls by nodeSearchCalls("searchCalls", maxQueries = maxQueries)
+        val setupContext by nodeStartResearch("setupContext", systemPrompt = systemPrompt)
+        val runSearches by nodeExecuteTools("runSearches", parallel = true)
         val sendToolResults by nodeLLMSendToolResults()
 
-        edge(nodeStart forwardTo setupContext)
-        edge(setupContext forwardTo askModel)
+        edge(nodeStart forwardTo planSearches transformed { question -> "$queryInstructions\n\nQuestion: $question" })
+        edge(planSearches forwardTo searchCalls)
+        edge(searchCalls forwardTo setupContext)
+        edge(setupContext forwardTo runSearches)
+        edge(runSearches forwardTo sendToolResults)
 
         // Koog follows the first edge that matches, and a reply can hold both text and tool calls
         // ("Let me search for that" plus a webSearch call). Tool calls are checked first, so such a reply
         // runs its tools instead of ending the run with the preamble as the answer.
-        edge(askModel forwardTo runTools onToolCalls { true })
-        edge(askModel forwardTo nodeFinish onTextMessage { true })
-
-        edge(runTools forwardTo sendToolResults)
-
-        edge(sendToolResults forwardTo runTools onToolCalls { true })
+        edge(sendToolResults forwardTo runSearches onToolCalls { true })
         edge(sendToolResults forwardTo nodeFinish onTextMessage { true })
+    }.also {
+        println(it.asMermaidDiagram())
     }
 }
