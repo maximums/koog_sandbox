@@ -22,6 +22,7 @@ import kotlin.time.Duration.Companion.seconds
 
 private const val KOOG = "https://koog.ai"
 private const val GITHUB = "https://github.com/JetBrains/koog"
+private const val DOCS = "https://docs.koog.ai"
 private const val MISSING = "https://example.com/missing"
 
 /**
@@ -42,7 +43,7 @@ private class RecordingFetcher(
 }
 
 private fun readPagesTool(fetcher: PageFetcher, maxPagesPerCall: Int = 5) =
-    ReadPagesTool(fetcher, maxPagesPerCall = maxPagesPerCall, maxPageChars = 100)
+    ReadPagesTool(fetcher, maxPagesPerCall = maxPagesPerCall, maxCharsPerCall = 100)
 
 /** Runs on a virtual clock, so retry waits take no real time. */
 val ReadPagesToolTest by testSuite(testConfig = TestConfig.testScope(isEnabled = true)) {
@@ -76,13 +77,28 @@ val ReadPagesToolTest by testSuite(testConfig = TestConfig.testScope(isEnabled =
         )
     }
 
-    test("cuts a page longer than the limit and says so") {
+    test("cuts a page longer than the call's character budget and says so") {
         val fetcher = RecordingFetcher(mapOf(KOOG to Page(KOOG, "x".repeat(150))))
 
         val page = readPagesTool(fetcher).execute(ReadPagesTool.Args(listOf(KOOG))).pages.single()
 
         assertEquals("x".repeat(100), page.content)
         assertTrue(page.truncated)
+    }
+
+    test("shares the character budget: a short page stays whole and the long ones split the rest") {
+        val fetcher = RecordingFetcher(
+            mapOf(
+                KOOG to Page(KOOG, "k".repeat(150)),
+                GITHUB to Page(GITHUB, "g".repeat(20)),
+                DOCS to Page(DOCS, "d".repeat(150)),
+            )
+        )
+
+        val pages = readPagesTool(fetcher).execute(ReadPagesTool.Args(listOf(KOOG, GITHUB, DOCS))).pages
+
+        assertEquals(listOf(KOOG to 40, GITHUB to 20, DOCS to 40), pages.map { it.url to it.content.length })
+        assertEquals(listOf(true, false, true), pages.map { it.truncated })
     }
 
     test("reads only as many pages as one call allows and reports the rest as not read") {
@@ -138,7 +154,7 @@ val ReadPagesToolTest by testSuite(testConfig = TestConfig.testScope(isEnabled =
     }
 
     test("rejects a page limit or character limit below 1 up front") {
-        assertFailsWith<IllegalArgumentException> { ReadPagesTool(RecordingFetcher(), maxPagesPerCall = 0, maxPageChars = 100) }
-        assertFailsWith<IllegalArgumentException> { ReadPagesTool(RecordingFetcher(), maxPagesPerCall = 5, maxPageChars = 0) }
+        assertFailsWith<IllegalArgumentException> { ReadPagesTool(RecordingFetcher(), maxPagesPerCall = 0, maxCharsPerCall = 100) }
+        assertFailsWith<IllegalArgumentException> { ReadPagesTool(RecordingFetcher(), maxPagesPerCall = 5, maxCharsPerCall = 0) }
     }
 }

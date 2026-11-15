@@ -17,7 +17,9 @@ import ai.koog.agents.features.tracing.writer.TraceFeatureMessageLogWriter
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.ollama.client.OllamaModels
+import io.github.maximums.tools.ReadPagesTool
 import io.github.maximums.tools.WebSearchTool
+import io.github.maximums.web.PageFetcher
 import io.github.maximums.web.SearchProvider
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -25,16 +27,19 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 fun researcherAgentProvider(
     executor: PromptExecutor = simpleOllamaAIExecutor(),
     searchProvider: SearchProvider,
+    pageFetcher: PageFetcher,
     limits: ResearchLimits = ResearchLimits(),
     logger: KLogger = KotlinLogging.logger {}
 ): GraphAIAgent<String, String> {
     val webSearch = WebSearchTool(searchProvider, limits.resultsPerQuery)
+    val readPages = ReadPagesTool(pageFetcher, maxPagesPerCall = limits.maxPagesPerRound, maxCharsPerCall = limits.maxCharsPerRead)
     return AIAgent(
         promptExecutor = executor,
         llmModel = OllamaModels.Alibaba.QWEN_3_8_27B,
         strategy = strategyProvider(),
         toolRegistry = ToolRegistry {
             tool(webSearch)
+            tool(readPages)
         },
         maxIterations = limits.maxRounds * 10 + limits.maxReportRewrites + 10,
     ) {

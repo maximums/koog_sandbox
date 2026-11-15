@@ -3,8 +3,7 @@
 package io.github.maximums
 
 import io.github.maximums.research.researcherAgentProvider
-import io.github.maximums.web.DuckDuckGoSearchProvider
-import io.github.maximums.web.JinaReaderFetcher
+import io.github.maximums.web.TavilyPageFetcher
 import io.github.maximums.web.TavilySearchProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.apache5.Apache5
@@ -31,6 +30,7 @@ fun main(args: Array<out String>) = runBlocking {
     }
     val agent = researcherAgentProvider(
         searchProvider = TavilySearchProvider(apiKey = tavilyApiKey, http = hClient),
+        pageFetcher = TavilyPageFetcher(apiKey = tavilyApiKey, http = hClient),
     )
 
     val userRequest = readln()

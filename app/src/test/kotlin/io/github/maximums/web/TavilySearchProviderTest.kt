@@ -39,11 +39,11 @@ private const val SEARCH_RESPONSE = """
 private val QUERY = SearchQuery("koog agents")
 
 val TavilySearchProviderTest by testSuite {
-    fun searchTavily(reply: TavilyReply = TavilyReply(body = SEARCH_RESPONSE)) = RecordingTavily(reply)
+    fun searchTavily(reply: Reply = Reply(body = SEARCH_RESPONSE)) = RecordingServer(reply)
 
-    fun RecordingTavily.provider() = TavilySearchProvider("tvly-test", http)
+    fun RecordingServer.provider() = TavilySearchProvider("tvly-test", http)
 
-    suspend fun failedSearch(reply: TavilyReply): ApiError {
+    suspend fun failedSearch(reply: Reply): ApiError {
         val tavily = searchTavily(reply)
         val error = assertNotNull(tavily.provider().search(QUERY, limit = 5).leftOrNull(), "expected an API error")
         assertEquals(1, tavily.requests.size, "the provider itself never retries")
@@ -94,7 +94,7 @@ val TavilySearchProviderTest by testSuite {
 
     test("treats a publication date it can't read as unknown") {
         val tavily = searchTavily(
-            TavilyReply(body = """{"results": [{"title": "Koog", "url": "https://koog.ai", "content": "Snippet.", "published_date": "sometime last year"}]}""")
+            Reply(body = """{"results": [{"title": "Koog", "url": "https://koog.ai", "content": "Snippet.", "published_date": "sometime last year"}]}""")
         )
 
         val results = assertNotNull(tavily.provider().search(QUERY, limit = 5).getOrNull())
@@ -103,7 +103,7 @@ val TavilySearchProviderTest by testSuite {
 
     test("treats blank page text as missing") {
         val tavily = searchTavily(
-            TavilyReply(body = """{"results": [{"title": "Empty", "url": "https://example.com", "content": "Snippet.", "raw_content": "  "}]}""")
+            Reply(body = """{"results": [{"title": "Empty", "url": "https://example.com", "content": "Snippet.", "raw_content": "  "}]}""")
         )
 
         val results = assertNotNull(tavily.provider().search(QUERY, limit = 5).getOrNull())
@@ -130,7 +130,7 @@ val TavilySearchProviderTest by testSuite {
             503 to ApiError.Unavailable::class,
         )
         for ((status, type) in expected) {
-            val error = failedSearch(TavilyReply(HttpStatusCode.fromValue(status), TAVILY_ERROR_BODY))
+            val error = failedSearch(Reply(HttpStatusCode.fromValue(status), TAVILY_ERROR_BODY))
 
             assertEquals(type, error::class, "HTTP $status")
             assertContains(error.message, "HTTP $status")
@@ -139,8 +139,8 @@ val TavilySearchProviderTest by testSuite {
     }
 
     test("reads how long a rate limit asks to wait") {
-        val withHeader = failedSearch(TavilyReply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY, retryAfter = "3"))
-        val withoutHeader = failedSearch(TavilyReply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY))
+        val withHeader = failedSearch(Reply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY, retryAfter = "3"))
+        val withoutHeader = failedSearch(Reply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY))
 
         assertEquals(3.seconds, assertIs<ApiError.RateLimited>(withHeader).retryAfter)
         assertNull(assertIs<ApiError.RateLimited>(withoutHeader).retryAfter)
@@ -157,7 +157,7 @@ val TavilySearchProviderTest by testSuite {
     }
 
     test("reports a response that can't be read as unexpected") {
-        val error = failedSearch(TavilyReply(body = "<html>Bad gateway</html>"))
+        val error = failedSearch(Reply(body = "<html>Bad gateway</html>"))
 
         assertIs<ApiError.Unexpected>(error)
     }

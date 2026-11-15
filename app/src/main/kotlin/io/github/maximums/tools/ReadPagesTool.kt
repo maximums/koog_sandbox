@@ -18,9 +18,11 @@ private val logger = KotlinLogging.logger {}
  * The LLM-facing tool for reading pages, usually ones found with [WebSearchTool]. Like that tool, it owns only
  * the contract the model sees; the reading itself is done by a [PageFetcher].
  *
- * One call reads at most [maxPagesPerCall] pages in a single batch, and cuts each page at [maxPageChars]
- * characters so one long page can't crowd everything else out of the context. With a focus, pages come back
- * as their most relevant excerpts instead, which is how long pages such as papers are meant to be read.
+ * One call reads at most [maxPagesPerCall] pages in a single batch, and returns at most [maxCharsPerCall]
+ * characters of page text in all, so a call can't fill the context. The pages share that budget: a page
+ * shorter than an equal share keeps all its text, and the longer ones split the rest equally and are cut.
+ * With a focus, pages come back as their most relevant excerpts instead, which is how long pages such as
+ * papers are meant to be read.
  *
  * As in [WebSearchTool], failures come back as data written for the model: [Result.error] when the whole read
  * failed (after retrying temporary failures with [retryPolicy]), and [Result.unreadable] for single pages.
@@ -28,7 +30,7 @@ private val logger = KotlinLogging.logger {}
 class ReadPagesTool(
     private val fetcher: PageFetcher,
     private val maxPagesPerCall: Int,
-    private val maxPageChars: Int,
+    private val maxCharsPerCall: Int,
     private val retryPolicy: RetryPolicy = RetryPolicy(),
 ) : Tool<ReadPagesTool.Args, ReadPagesTool.Result>(
     argsType = typeToken<Args>(),
@@ -39,7 +41,7 @@ class ReadPagesTool(
 
     init {
         require(maxPagesPerCall >= 1) { "maxPagesPerCall must be at least 1, was $maxPagesPerCall" }
-        require(maxPageChars >= 1) { "maxPageChars must be at least 1, was $maxPageChars" }
+        require(maxCharsPerCall >= 1) { "maxCharsPerCall must be at least 1, was $maxCharsPerCall" }
     }
 
     @Serializable
@@ -86,8 +88,10 @@ class ReadPagesTool(
                 Result(unreadable = skipped, error = error.forModel())
             },
             ifRight = { outcomes ->
+                val read = outcomes.values.mapNotNull { outcome -> outcome.getOrNull() }
+                val shares = shareChars(read.map { it.content.length }, maxCharsPerCall)
                 Result(
-                    pages = outcomes.values.mapNotNull { outcome -> outcome.getOrNull()?.toPageText() },
+                    pages = read.zip(shares) { page, maxChars -> page.toPageText(maxChars) },
                     unreadable = outcomes.values.mapNotNull { outcome ->
                         outcome.leftOrNull()?.let { UnreadablePage(it.url, it.message) }
                     } + skipped,
@@ -96,15 +100,30 @@ class ReadPagesTool(
         )
     }
 
-    private fun Page.toPageText(): PageText {
-        val truncated = content.length > maxPageChars
+    private fun Page.toPageText(maxChars: Int): PageText {
+        val truncated = content.length > maxChars
         return PageText(
             url = url,
-            content = if (truncated) content.take(maxPageChars) else content,
+            content = if (truncated) content.take(maxChars) else content,
             publishedDate = publishedDate?.toString(),
             truncated = truncated,
         )
     }
+}
+
+/**
+ * Splits [budget] characters between texts of the given [lengths], returning each text's share in the same
+ * order. Going from the shortest text up, each gets an equal share of what's left, or its whole length when
+ * that's less, so what short texts don't use goes to the longer ones.
+ */
+private fun shareChars(lengths: List<Int>, budget: Int): List<Int> {
+    val shares = IntArray(lengths.size)
+    var left = budget
+    for ((done, i) in lengths.indices.sortedBy { lengths[it] }.withIndex()) {
+        shares[i] = minOf(lengths[i], left / (lengths.size - done))
+        left -= shares[i]
+    }
+    return shares.asList()
 }
 
 private fun ApiError.forModel(): String = when (this) {

@@ -16,14 +16,14 @@ import kotlinx.serialization.json.jsonObject
 
 internal const val TAVILY_ERROR_BODY = """{"detail":{"error":"Tavily says no."}}"""
 
-internal data class TavilyReply(
+internal data class Reply(
     val status: HttpStatusCode = HttpStatusCode.OK,
     val body: String,
     val retryAfter: String? = null,
 )
 
-/** A stand-in for Tavily: answers every request with [reply] and records the requests it got. */
-internal class RecordingTavily(reply: TavilyReply) {
+/** A stand-in for a JSON web API: answers every request with [reply] and records the requests it got. */
+internal class RecordingServer(reply: Reply) {
     val requests = mutableListOf<HttpRequestData>()
 
     val http = HttpClient(MockEngine { request ->

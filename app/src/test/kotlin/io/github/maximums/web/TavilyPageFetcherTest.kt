@@ -37,9 +37,9 @@ private const val GITHUB = "https://github.com/JetBrains/koog"
 private const val MISSING = "https://example.com/missing"
 
 val TavilyPageFetcherTest by testSuite {
-    fun extractTavily(reply: TavilyReply = TavilyReply(body = EXTRACT_RESPONSE)) = RecordingTavily(reply)
+    fun extractTavily(reply: Reply = Reply(body = EXTRACT_RESPONSE)) = RecordingServer(reply)
 
-    fun RecordingTavily.fetcher() = TavilyPageFetcher("tvly-test", http)
+    fun RecordingServer.fetcher() = TavilyPageFetcher("tvly-test", http)
 
     test("gives every requested URL its own outcome, whatever order Tavily answers in") {
         val outcomes = extractTavily().fetcher().fetch(PageRequest(listOf(KOOG, GITHUB, MISSING)))
@@ -56,7 +56,7 @@ val TavilyPageFetcherTest by testSuite {
 
     test("reports a page Tavily says nothing about, or returns without text, as unreadable") {
         val tavily = extractTavily(
-            TavilyReply(body = """{"results": [{"url": "https://koog.ai", "raw_content": "   "}], "failed_results": []}""")
+            Reply(body = """{"results": [{"url": "https://koog.ai", "raw_content": "   "}], "failed_results": []}""")
         )
         val unknown = "https://unknown.example"
 
@@ -99,8 +99,8 @@ val TavilyPageFetcherTest by testSuite {
     }
 
     test("fails the whole request with an API error when Tavily rejects it") {
-        val unauthorized = extractTavily(TavilyReply(HttpStatusCode.Unauthorized, TAVILY_ERROR_BODY))
-        val rateLimited = extractTavily(TavilyReply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY, retryAfter = "5"))
+        val unauthorized = extractTavily(Reply(HttpStatusCode.Unauthorized, TAVILY_ERROR_BODY))
+        val rateLimited = extractTavily(Reply(HttpStatusCode.TooManyRequests, TAVILY_ERROR_BODY, retryAfter = "5"))
 
         assertIs<ApiError.Unauthorized>(unauthorized.fetcher().fetch(PageRequest(listOf(KOOG))).leftOrNull())
         assertIs<ApiError.RateLimited>(rateLimited.fetcher().fetch(PageRequest(listOf(KOOG))).leftOrNull())
