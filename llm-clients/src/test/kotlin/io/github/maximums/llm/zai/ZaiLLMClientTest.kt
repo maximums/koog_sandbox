@@ -13,6 +13,7 @@ import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.streaming.toMessageResponse
 import de.infix.testBalloon.framework.core.testSuite
+import io.github.maximums.llm.RecordingServer
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.toList

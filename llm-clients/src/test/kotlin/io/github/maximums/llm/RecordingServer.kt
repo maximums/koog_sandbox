@@ -1,4 +1,4 @@
-package io.github.maximums.llm.zai
+package io.github.maximums.llm
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngineCapability

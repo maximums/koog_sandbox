@@ -1,4 +1,4 @@
-// Koog LLM clients for providers Koog doesn't ship: Z.ai first, later the System One models (Kev/Jev).
+// Koog LLM clients for APIs Koog doesn't ship: Z.ai and Google's Gemini Decisions API.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
