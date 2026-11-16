@@ -19,7 +19,7 @@ import io.github.maximums.decision.Answer
 import io.github.maximums.decision.DecisionModel
 import io.github.maximums.decision.Question
 import io.github.maximums.decision.ScoreAnswer
-import io.github.maximums.llm.ZaiModels
+import io.github.maximums.llm.zai.ZaiModels
 import io.github.maximums.tools.ReadPagesTool
 import io.github.maximums.tools.WebSearchTool
 import io.github.maximums.web.ApiError

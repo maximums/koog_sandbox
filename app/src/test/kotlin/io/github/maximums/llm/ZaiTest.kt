@@ -3,6 +3,7 @@ package io.github.maximums.llm
 import ai.koog.http.client.ktor.KtorKoogHttpClient
 import ai.koog.prompt.dsl.prompt
 import de.infix.testBalloon.framework.core.testSuite
+import io.github.maximums.llm.zai.ZaiModels
 import io.github.maximums.web.RecordingServer
 import io.github.maximums.web.Reply
 import io.ktor.http.HttpHeaders

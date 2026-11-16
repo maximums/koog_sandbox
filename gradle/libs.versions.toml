@@ -14,6 +14,10 @@ arrow = "2.3.0"
 koog-agents = { module = "ai.koog:koog-agents", version.ref = "koog" }
 koog-agents-additions = { module = "ai.koog:koog-agents-additions", version.ref = "koog-beta" }
 koog-agents-test = { module = "ai.koog:agents-test", version.ref = "koog" }
+koog-prompt-executor-clients = { module = "ai.koog:prompt-executor-clients", version.ref = "koog" }
+koog-prompt-executor-openai-client-base = { module = "ai.koog:prompt-executor-openai-client-base", version.ref = "koog" }
+koog-http-client-core = { module = "ai.koog:http-client-core", version.ref = "koog" }
+koog-http-client-ktor = { module = "ai.koog:http-client-ktor", version.ref = "koog" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-apache5 = { module = "io.ktor:ktor-client-apache5", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }

@@ -5,7 +5,7 @@ package io.github.maximums
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.ollama.client.OllamaModels
 import io.github.maximums.decision.SystemOneClient
-import io.github.maximums.llm.ZaiModels
+import io.github.maximums.llm.zai.ZaiModels
 import io.github.maximums.llm.simpleZaiExecutor
 import io.github.maximums.research.researcherAgentProvider
 import io.github.maximums.web.TavilyPageFetcher
@@ -16,6 +16,22 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+
+
+//  curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent" \
+//  -H 'Content-Type: application/json' \
+//  -X POST \
+//  -d '{
+//    "contents": [
+//      {
+//        "parts": [
+//          {
+//            "text": "Explain how AI works in a few words"
+//          }
+//        ]
+//      }
+//    ]
+//  }'
 
 fun main(args: Array<out String>) = runBlocking {
     val tavilyApiKey = System.getenv("TAVILY_API_KEY")?.takeIf { it.isNotBlank() }

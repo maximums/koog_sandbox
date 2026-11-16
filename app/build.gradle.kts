@@ -10,6 +10,7 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":llm-clients"))
     implementation(libs.koog.agents)
     implementation(libs.koog.agents.additions)
     implementation(libs.ktor.client.core)

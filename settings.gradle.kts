@@ -13,3 +13,4 @@ plugins {
 
 rootProject.name = "kresearch"
 include("app")
+include("llm-clients")
